@@ -123,14 +123,8 @@ export default async function handler(req, res) {
     if (text.startsWith('/start')) {
       await sendTelegram(BOT_TOKEN, {
         chat_id: chatId,
-        text: '📊 **Google Sheet Manager**\nအောက်ပါ ခလုတ်ကို နှိပ်၍ Mini App မှတစ်ဆင့် Sheet ID များကို စီမံနိုင်ပါသည် (သို့မဟုတ်) Excel ဖိုင်ကို တိုက်ရိုက် ပို့ပေးပါ-',
-        parse_mode: 'Markdown',
-        reply_markup: {
-          remove_keyboard: true,
-          inline_keyboard: [
-            [{ text: '⚙️ Open Sheet Manager', web_app: { url: 'https://ygntg.vercel.app/' } }],
-          ],
-        },
+        text: '✅ အဆင်သင့်ဖြစ်ပါပြီ။ Excel ဖိုင်များကို တိုက်ရိုက် ပို့ပေးနိုင်ပါပြီ (Sheet ID ပြောင်းလိုပါက ဘယ်ဘက်အောက်ခြေ Menu ခလုတ်မှ Mini App ကို ဖွင့်ပါ)။',
+        reply_markup: { remove_keyboard: true },
       });
       return res.status(200).send('OK');
     }
