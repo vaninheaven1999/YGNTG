@@ -52,24 +52,46 @@ export function parseDepositExcel(buffer) {
   if (!sheetName) return [];
   const jsonData = XLSX.utils.sheet_to_json(workbook.Sheets[sheetName], { header: 1, defval: '', blankrows: false });
   if (!jsonData.length) return [];
-  let headerIndex = jsonData.findIndex((row, i) => i < 10 && row.some((cell) => typeof cell === 'string' && (cell.includes('วันที่') || cell.toLowerCase().includes('date') || cell.includes('USERNAME') || cell.includes('ยอดฝาก'))));
+
+  let headerIndex = jsonData.findIndex((row, i) => i < 10 && row.some((cell) => {
+    if (typeof cell !== 'string') return false;
+    const c = cell.toLowerCase();
+    return cell.includes('วันที่') || c.includes('date') || c.includes('username') || cell.includes('ยอดฝาก') || cell.includes('ยอดถอน') || cell.includes('จำนวนเงิน');
+  }));
   if (headerIndex === -1) headerIndex = 0;
+
   const headers = jsonData[headerIndex].map((h) => String(h || '').trim());
+  const isWithdrawFile = headers.some((h) => h.includes('ยอดถอน') || h.toLowerCase().includes('withdraw'));
+
   const rawRows = jsonData.slice(headerIndex + 1).map((row) => {
     const obj = {};
     headers.forEach((h, idx) => {
       if (!h) return;
       const val = row[idx];
       const lowerH = h.toLowerCase();
-      if (h === 'วันที่' || lowerH.includes('date')) obj.dateTime = formatExcelDateTime(val);
-      else if (h === 'USERNAME' || lowerH === 'username') obj.username = String(val ?? '').trim();
-      else if (h === 'ยอดฝาก' || lowerH.includes('deposit')) obj.depositAmount = parseNumeric(val);
+
+      if (h === 'วันที่' || lowerH.includes('date') || lowerH.includes('เวลา')) {
+        obj.dateTime = formatExcelDateTime(val);
+      } else if (lowerH.includes('username') || lowerH === 'user' || h.includes('ยูสเซอร์')) {
+        obj.username = String(val ?? '').trim();
+      } else if (h.includes('ธนาคาร') || lowerH.includes('bank')) {
+        obj.bank = String(val ?? '').trim();
+      } else if (h.includes('เลขบัญชี') || lowerH.includes('acc')) {
+        obj.accNo = formatAccountNo(val);
+      } else if (
+        h.includes('ยอดฝาก') || h.includes('ยอดถอน') || h.includes('จำนวนเงิน') || h.includes('ยอดเงิน') ||
+        lowerH.includes('deposit') || lowerH.includes('withdraw') || lowerH.includes('amount')
+      ) {
+        const parsed = parseNumeric(val);
+        if (parsed > 0 || !obj.amount) obj.amount = parsed;
+      }
     });
     return obj;
-  }).filter((r) => r.dateTime || r.username || (r.depositAmount && r.depositAmount > 0));
+  }).filter((r) => r.dateTime || r.username || (r.amount && r.amount > 0));
 
   return rawRows.map((raw) => {
     const { dateStr, timeStr } = extractDateAndTime(raw.dateTime);
-    return [dateStr, 'Auto', '0000', 'Deposit', raw.username || 'user', timeStr, Number((raw.depositAmount || 0).toFixed(2))];
+    const txType = isWithdrawFile ? 'Withdraw' : 'Deposit';
+    return [dateStr, raw.bank || 'Auto', raw.accNo || '0000', txType, raw.username || 'user', timeStr, Number((raw.amount || 0).toFixed(2))];
   });
 }
