@@ -18,10 +18,6 @@ async function sendTelegram(botToken, payload) {
 }
 
 export default async function handler(req, res) {
-  if (req.method !== 'POST') {
-    return res.status(200).send('Method not allowed');
-  }
-
   const BOT_TOKEN = process.env.BOT_TOKEN;
   const MASTER_SHEET_ID = process.env.SHEET_ID;
   const GOOGLE_CREDS = JSON.parse(process.env.GOOGLE_CREDS_JSON);
@@ -81,99 +77,64 @@ export default async function handler(req, res) {
     }
   }
 
-  // Keyboard နေရာတွင် အမြဲပေါ်နေမည့် ခလုတ်များ (Persistent Reply Keyboard)
-  const persistentKeyboard = {
-    keyboard: [
-      [{ text: '✏️ Sheet အသစ်ပြောင်းချိတ်ရန်' }, { text: '📄 လက်ရှိ Sheet ကြည့်ရန်' }],
-    ],
-    resize_keyboard: true,
-    is_persistent: true,
-  };
+  // ၁။ Mini App မှ လက်ရှိ Config အချက်အလက်များ တောင်းယူခြင်း (GET)
+  if (req.method === 'GET') {
+    if (req.query?.action === 'config') {
+      const activeSheetId = await getActiveSheetId();
+      return res.status(200).json({ ok: true, activeSheetId, serviceEmail: SERVICE_EMAIL });
+    }
+    return res.status(200).send('Bot Webhook Active');
+  }
 
+  if (req.method !== 'POST') {
+    return res.status(200).send('Method not allowed');
+  }
+
+  // ၂။ Mini App မှ Sheet ID အသစ် ပြောင်းလဲသိမ်းဆည်းခြင်း
+  if (req.body?.action === 'update_sheet') {
+    const newId = extractSheetId(req.body.sheetInput);
+    if (!newId) {
+      return res.status(400).json({ ok: false, error: 'Sheet Link သို့မဟုတ် ID ပုံစံ မှားယွင်းနေပါသည်။' });
+    }
+    try {
+      await setupTargetSheet(newId);
+      await sheets.spreadsheets.values.update({
+        spreadsheetId: MASTER_SHEET_ID,
+        range: 'Config!A1',
+        valueInputOption: 'RAW',
+        requestBody: { values: [[newId]] },
+      });
+      return res.status(200).json({ ok: true, activeSheetId: newId });
+    } catch (err) {
+      return res.status(403).json({
+        ok: false,
+        error: 'ထို Sheet ကို ဝင်ခွင့်မရှိပါ။ Service Email ကို Editor အဖြစ် Share အရင်ပေးပါ။',
+      });
+    }
+  }
+
+  // ၃။ Telegram Bot မှ Message များ လက်ခံဆောင်ရွက်ခြင်း
   try {
     const message = req.body?.message;
     if (!message) return res.status(200).send('OK');
     const chatId = message.chat.id;
     const text = (message.text || '').trim();
 
-    // ၁။ /start ရိုက်လျှင် Keyboard ခလုတ်များ ထုတ်ပေးခြင်း
     if (text.startsWith('/start')) {
       await sendTelegram(BOT_TOKEN, {
         chat_id: chatId,
-        text: '✅ အဆင်သင့်ဖြစ်ပါပြီ။ အောက်ခြေရှိ ခလုတ်များကို နှိပ်၍ အသုံးပြုနိုင်ပါသည်-',
-        reply_markup: persistentKeyboard,
-      });
-      return res.status(200).send('OK');
-    }
-
-    // ၂။ "လက်ရှိ Sheet ကြည့်ရန်" ခလုတ်နှိပ်လျှင်
-    if (text === '📄 လက်ရှိ Sheet ကြည့်ရန်') {
-      const currentId = await getActiveSheetId();
-      await sendTelegram(BOT_TOKEN, {
-        chat_id: chatId,
-        text: `📊 *လက်ရှိ အသုံးပြုနေသော Google Sheet:*\nID: \`${currentId}\`\n\n🔗 [Google Sheet ဖွင့်ရန်](https://docs.google.com/spreadsheets/d/${currentId})`,
+        text: '📊 **Google Sheet Manager**\nအောက်ပါ ခလုတ်ကို နှိပ်၍ Mini App မှတစ်ဆင့် Sheet ID များကို စီမံနိုင်ပါသည် (သို့မဟုတ်) Excel ဖိုင်ကို တိုက်ရိုက် ပို့ပေးပါ-',
         parse_mode: 'Markdown',
-        disable_web_page_preview: true,
-        reply_markup: persistentKeyboard,
+        reply_markup: {
+          remove_keyboard: true,
+          inline_keyboard: [
+            [{ text: '⚙️ Open Sheet Manager', web_app: { url: 'https://ygntg.vercel.app/' } }],
+          ],
+        },
       });
       return res.status(200).send('OK');
     }
 
-    // ၃။ "Sheet အသစ်ပြောင်းချိတ်ရန်" ခလုတ်နှိပ်လျှင်
-    if (text === '✏️ Sheet အသစ်ပြောင်းချိတ်ရန်') {
-      await sendTelegram(BOT_TOKEN, {
-        chat_id: chatId,
-        text:
-          `📌 **Sheet အသစ် ပြောင်းချိတ်နည်း**\n\n` +
-          `၁။ Sheet အသစ်ရဲ့ **Share** ထဲမှာ အောက်ပါ Email ကို **Editor** ထည့်ပေးပါ (နှိပ်ပြီး Copy ကူးနိုင်သည်)-\n` +
-          `\`${SERVICE_EMAIL}\`\n\n` +
-          `၂။ ပြီးရင် **Sheet Link** (သို့မဟုတ်) **Sheet ID** ကို ဒီ Chat ထဲကို တိုက်ရိုက် ပို့ပေးလိုက်ပါ-`,
-        parse_mode: 'Markdown',
-        reply_markup: persistentKeyboard,
-      });
-      return res.status(200).send('OK');
-    }
-
-    // ၄။ Sheet Link သို့မဟုတ် ID တိုက်ရိုက်ပို့လာလျှင် (Reply ပြန်စရာမလိုဘဲ တန်းဖမ်းပေးသည်)
-    const possibleSheetId = text && !text.startsWith('/') ? extractSheetId(text) : null;
-    if (possibleSheetId) {
-      try {
-        await setupTargetSheet(possibleSheetId);
-      } catch (permErr) {
-        await sendTelegram(BOT_TOKEN, {
-          chat_id: chatId,
-          text:
-            `⚠️ **ချိတ်ဆက်မှု မအောင်မြင်ပါ**\n` +
-            `Sheet အသစ်မှာ အောက်ပါ Email ကို **Editor** အဖြစ် Share မပေးရသေးပါ-\n\n` +
-            `\`${SERVICE_EMAIL}\`\n\n` +
-            `Share ပေးပြီးမှ Link သို့မဟုတ် ID ကို ပြန်ပို့ပေးပါ။`,
-          parse_mode: 'Markdown',
-          reply_markup: persistentKeyboard,
-        });
-        return res.status(200).send('OK');
-      }
-
-      await sheets.spreadsheets.values.update({
-        spreadsheetId: MASTER_SHEET_ID,
-        range: 'Config!A1',
-        valueInputOption: 'RAW',
-        requestBody: { values: [[possibleSheetId]] },
-      });
-
-      await sendTelegram(BOT_TOKEN, {
-        chat_id: chatId,
-        text:
-          `✅ **Sheet အသစ် ပြောင်းချိတ်ပြီးပါပြီ!**\n\n` +
-          `• Sheet ID: \`${possibleSheetId}\`\n` +
-          `• \`Deposit\` နှင့် \`Withdraw\` Tab များကို အလိုအလျောက် ပြင်ဆင်ပြီးပါပြီ။\n\n` +
-          `Excel ဖိုင်များ စတင်ပို့နိုင်ပါပြီ။`,
-        parse_mode: 'Markdown',
-        reply_markup: persistentKeyboard,
-      });
-      return res.status(200).send('OK');
-    }
-
-    // ၅။ Excel ဖိုင် ပို့လာလျှင် လက်ရှိ Active Sheet ထဲသို့ ထည့်သွင်းခြင်း
     if (message.document) {
       const activeSheetId = await getActiveSheetId();
 
@@ -236,14 +197,12 @@ export default async function handler(req, res) {
           const skipMsg = duplicateCount > 0 ? `\n(စာရင်းဟောင်း ${duplicateCount} ကြောင်း ထပ်နေ၍ ကျော်လိုက်ပါသည်)` : '';
           await sendTelegram(BOT_TOKEN, {
             chat_id: chatId,
-            text: `✅ အောင်မြင်ပါသည်။ [${targetTab}] Tab ထဲသို့ စာရင်းအသစ် (${newRows.length}) ကြောင်း ထည့်သွင်းပြီးပါပြီ။${skipMsg}`,
-            reply_markup: persistentKeyboard,
+            text: `✅ [${targetTab}] ထဲသို့ စာရင်းအသစ် (${newRows.length}) ကြောင်း ထည့်ပြီးပါပြီ။${skipMsg}`,
           });
         } else {
           await sendTelegram(BOT_TOKEN, {
             chat_id: chatId,
-            text: `ℹ️ စာရင်းအသစ် မပါဝင်ပါ။ (စာရင်း ${duplicateCount} ကြောင်းလုံး [${targetTab}] Tab ထဲတွင် ရှိပြီးသား ဖြစ်နေပါသည်)`,
-            reply_markup: persistentKeyboard,
+            text: `ℹ️ စာရင်းအသစ် မပါဝင်ပါ။ (${duplicateCount} ကြောင်းလုံး [${targetTab}] ထဲတွင် ရှိပြီးသားဖြစ်သည်)`,
           });
         }
       }
@@ -254,7 +213,6 @@ export default async function handler(req, res) {
       await sendTelegram(BOT_TOKEN, {
         chat_id: chatId,
         text: `⚠️ အမှားအယွင်းရှိသည်: ${err.message}`,
-        reply_markup: persistentKeyboard,
       });
     }
   }
