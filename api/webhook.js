@@ -35,7 +35,7 @@ export default async function handler(req, res) {
         // Sheet ထဲ ထည့်ခြင်း
         await sheets.spreadsheets.values.append({
           spreadsheetId: SHEET_ID,
-          range: 'Sheet1!A:G',
+          range: 'Deposit!A:G',
           valueInputOption: 'USER_ENTERED',
           requestBody: { values: sheetValues },
         });
