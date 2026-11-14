@@ -1,0 +1,186 @@
+<!DOCTYPE html>
+<html lang="my">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title>Sheet Manager</title>
+  <script src="https://telegram.org/js/telegram-web-app.js"></script>
+  <style>
+    :root {
+      --bg: #0f172a;
+      --card: rgba(30, 41, 59, 0.75);
+      --border: rgba(148, 163, 184, 0.18);
+      --text: #f8fafc;
+      --muted: #94a3b8;
+      --accent: #38bdf8;
+      --accent-hover: #0284c7;
+      --success: #10b981;
+      --danger: #ef4444;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+    body {
+      background: radial-gradient(circle at top right, #1e293b, #090d16);
+      color: var(--text);
+      padding: 16px;
+      min-height: 100vh;
+    }
+    .container { max-width: 480px; margin: 0 auto; display: flex; flex-direction: column; gap: 16px; }
+    .header { text-align: center; padding: 8px 0; }
+    .header h2 { font-size: 1.25rem; font-weight: 700; letter-spacing: 0.3px; }
+    .header p { font-size: 0.82rem; color: var(--muted); margin-top: 4px; }
+    .card {
+      background: var(--card);
+      backdrop-filter: blur(14px);
+      -webkit-backdrop-filter: blur(14px);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 16px;
+      box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+    }
+    .label { font-size: 0.78rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.6px; margin-bottom: 8px; display: block; }
+    .box-row {
+      display: flex; align-items: center; justify-content: space-between; gap: 8px;
+      background: rgba(15, 23, 42, 0.85);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 10px 12px;
+    }
+    .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.82rem; color: #e2e8f0; word-break: break-all; }
+    .btn {
+      border: none; border-radius: 10px; padding: 10px 14px; font-size: 0.85rem; font-weight: 600;
+      cursor: pointer; transition: 0.2s; display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+    }
+    .btn-sm { padding: 7px 11px; font-size: 0.78rem; flex-shrink: 0; }
+    .btn-primary { background: var(--accent); color: #0f172a; width: 100%; margin-top: 12px; padding: 12px; }
+    .btn-primary:hover { background: var(--accent-hover); color: #fff; }
+    .btn-primary:disabled { opacity: 0.5; cursor: not-allowed; }
+    .btn-outline { background: rgba(56, 189, 248, 0.12); color: var(--accent); border: 1px solid rgba(56, 189, 248, 0.3); }
+    .btn-open { width: 100%; margin-top: 10px; background: rgba(16, 185, 129, 0.15); color: #34d399; border: 1px solid rgba(16, 185, 129, 0.3); }
+    input[type="text"] {
+      width: 100%; background: rgba(15, 23, 42, 0.9); border: 1px solid var(--border);
+      border-radius: 10px; padding: 12px; color: var(--text); font-size: 0.88rem; outline: none;
+    }
+    input[type="text"]:focus { border-color: var(--accent); }
+    .status {
+      margin-top: 12px; padding: 10px 12px; border-radius: 10px; font-size: 0.83rem; display: none; line-height: 1.4;
+    }
+    .status.ok { display: block; background: rgba(16, 185, 129, 0.15); border: 1px solid rgba(16, 185, 129, 0.4); color: #6ee7b7; }
+    .status.err { display: block; background: rgba(239, 68, 68, 0.15); border: 1px solid rgba(239, 68, 68, 0.4); color: #fca5a5; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <h2>📊 Google Sheet Manager</h2>
+      <p>Excel Auto-Ledger Configuration</p>
+    </div>
+
+    <!-- 1. Service Account Email -->
+    <div class="card">
+      <span class="label">1. Share ပေးရမည့် Service Email (Editor)</span>
+      <div class="box-row">
+        <span class="mono" id="serviceEmail">Loading...</span>
+        <button class="btn btn-sm btn-outline" onclick="copyEmail()">Copy</button>
+      </div>
+    </div>
+
+    <!-- 2. Current Active Sheet -->
+    <div class="card">
+      <span class="label">2. လက်ရှိ ချိတ်ဆက်ထားသော Sheet ID</span>
+      <div class="box-row">
+        <span class="mono" id="activeSheetId">Loading...</span>
+      </div>
+      <button class="btn btn-open" id="openSheetBtn" onclick="openCurrentSheet()">🔗 Google Sheet ဖွင့်ကြည့်ရန်</button>
+    </div>
+
+    <!-- 3. Change Sheet ID -->
+    <div class="card">
+      <span class="label">3. Sheet အသစ် ပြောင်းချိတ်ရန်</span>
+      <input type="text" id="newSheetInput" placeholder="Google Sheet Link သို့မဟုတ် ID ထည့်ပါ..." />
+      <button class="btn btn-primary" id="saveBtn" onclick="updateSheet()">💾 Save & Connect Sheet</button>
+      <div class="status" id="statusBox"></div>
+    </div>
+  </div>
+
+  <script>
+    const tg = window.Telegram?.WebApp;
+    if (tg) {
+      tg.ready();
+      tg.expand();
+    }
+
+    let currentId = '';
+    let serviceEmail = '';
+
+    async function loadConfig() {
+      try {
+        const res = await fetch('/api/webhook?action=config');
+        const data = await res.json();
+        if (data.ok) {
+          currentId = data.activeSheetId;
+          serviceEmail = data.serviceEmail;
+          document.getElementById('serviceEmail').textContent = serviceEmail;
+          document.getElementById('activeSheetId').textContent = currentId;
+        }
+      } catch (e) {
+        document.getElementById('serviceEmail').textContent = 'Error loading';
+      }
+    }
+
+    function copyEmail() {
+      if (!serviceEmail) return;
+      navigator.clipboard.writeText(serviceEmail);
+      showStatus('ok', '✅ Service Email ကို Copy ကူးပြီးပါပြီ။ Sheet အသစ်ရဲ့ Share ထဲမှာ Editor ထည့်ပေးပါ။');
+    }
+
+    function openCurrentSheet() {
+      if (!currentId) return;
+      const url = `https://docs.google.com/spreadsheets/d/${currentId}`;
+      if (tg) tg.openLink(url);
+      else window.open(url, '_blank');
+    }
+
+    function showStatus(type, msg) {
+      const box = document.getElementById('statusBox');
+      box.className = `status ${type}`;
+      box.textContent = msg;
+    }
+
+    async function updateSheet() {
+      const input = document.getElementById('newSheetInput').value.trim();
+      if (!input) {
+        showStatus('err', '⚠️ Google Sheet Link သို့မဟုတ် ID အရင်ထည့်ပါ။');
+        return;
+      }
+
+      const btn = document.getElementById('saveBtn');
+      btn.disabled = true;
+      btn.textContent = '⏳ စစ်ဆေးနေပါသည်...';
+
+      try {
+        const res = await fetch('/api/webhook', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'update_sheet', sheetInput: input })
+        });
+        const data = await res.json();
+        if (data.ok) {
+          currentId = data.activeSheetId;
+          document.getElementById('activeSheetId').textContent = currentId;
+          document.getElementById('newSheetInput').value = '';
+          showStatus('ok', '✅ အောင်မြင်ပါသည်။ Deposit နှင့် Withdraw Tab များ အဆင်သင့် ပြင်ဆင်ပြီးပါပြီ။');
+        } else {
+          showStatus('err', `⚠️ ${data.error}`);
+        }
+      } catch (e) {
+        showStatus('err', '⚠️ ချိတ်ဆက်မှု အမှားအယွင်း ဖြစ်ပေါ်နေပါသည်။');
+      } finally {
+        btn.disabled = false;
+        btn.textContent = '💾 Save & Connect Sheet';
+      }
+    }
+
+    loadConfig();
+  </script>
+</body>
+</html>
