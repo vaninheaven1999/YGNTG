@@ -123,7 +123,7 @@ export default async function handler(req, res) {
     if (text.startsWith('/start')) {
       await sendTelegram(BOT_TOKEN, {
         chat_id: chatId,
-        text: '✅ အဆင်သင့်ဖြစ်ပါပြီ။ Excel ဖိုင်များကို တိုက်ရိုက် ပို့ပေးနိုင်ပါပြီ (Sheet ID ပြောင်းလိုပါက ဘယ်ဘက်အောက်ခြေ Menu ခလုတ်မှ Mini App ကို ဖွင့်ပါ)။',
+        text: '✅ အဆင်သင့်ဖြစ်ပါပြီ။ Excel ဖိုင်များကို တိုက်ရိုက် ပို့ပေးနိုင်ပါပြီ။',
         reply_markup: { remove_keyboard: true },
       });
       return res.status(200).send('OK');
