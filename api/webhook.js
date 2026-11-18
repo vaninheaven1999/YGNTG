@@ -10,6 +10,7 @@ function extractSheetId(input) {
 }
 
 async function sendTelegram(botToken, payload) {
+  if (!botToken) return;
   await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -17,28 +18,74 @@ async function sendTelegram(botToken, payload) {
   });
 }
 
+function parseGoogleCreds(raw) {
+  if (!raw || !String(raw).trim()) return null;
+  try {
+    return JSON.parse(raw);
+  } catch {
+    return null;
+  }
+}
+
 export default async function handler(req, res) {
   const BOT_TOKEN = process.env.BOT_TOKEN;
-  const MASTER_SHEET_ID = process.env.SHEET_ID;
-  const GOOGLE_CREDS = JSON.parse(process.env.GOOGLE_CREDS_JSON);
-  const SERVICE_EMAIL = GOOGLE_CREDS.client_email;
+  const MASTER_SHEET_ID = process.env.SHEET_ID || '';
+  const GOOGLE_CREDS = parseGoogleCreds(process.env.GOOGLE_CREDS_JSON);
+  const SERVICE_EMAIL = GOOGLE_CREDS?.client_email || '';
 
-  const auth = new google.auth.GoogleAuth({
-    credentials: GOOGLE_CREDS,
-    scopes: ['https://www.googleapis.com/auth/spreadsheets'],
-  });
-  const sheets = google.sheets({ version: 'v4', auth });
+  let sheets = null;
+  if (GOOGLE_CREDS) {
+    const auth = new google.auth.GoogleAuth({
+      credentials: GOOGLE_CREDS,
+      scopes: ['https://www.googleapis.com/auth/spreadsheets'],
+    });
+    sheets = google.sheets({ version: 'v4', auth });
+  }
+
+  const DISCONNECTED_MARKER = 'DISCONNECTED';
 
   async function getActiveSheetId() {
+    if (!sheets || !MASTER_SHEET_ID) {
+      return '';
+    }
     try {
       const cfg = await sheets.spreadsheets.values.get({
         spreadsheetId: MASTER_SHEET_ID,
         range: 'Config!A1',
       });
       const savedId = cfg.data.values?.[0]?.[0]?.trim();
+      if (savedId === DISCONNECTED_MARKER) {
+        return '';
+      }
       return savedId || MASTER_SHEET_ID;
     } catch {
       return MASTER_SHEET_ID;
+    }
+  }
+
+  async function saveConfigValue(val) {
+    try {
+      await sheets.spreadsheets.values.update({
+        spreadsheetId: MASTER_SHEET_ID,
+        range: 'Config!A1',
+        valueInputOption: 'RAW',
+        requestBody: { values: [[val]] },
+      });
+    } catch {
+      const meta = await sheets.spreadsheets.get({ spreadsheetId: MASTER_SHEET_ID });
+      const hasConfig = meta.data.sheets.some((s) => s.properties.title === 'Config');
+      if (!hasConfig) {
+        await sheets.spreadsheets.batchUpdate({
+          spreadsheetId: MASTER_SHEET_ID,
+          requestBody: { requests: [{ addSheet: { properties: { title: 'Config' } } }] },
+        });
+      }
+      await sheets.spreadsheets.values.update({
+        spreadsheetId: MASTER_SHEET_ID,
+        range: 'Config!A1',
+        valueInputOption: 'RAW',
+        requestBody: { values: [[val]] },
+      });
     }
   }
 
@@ -81,7 +128,13 @@ export default async function handler(req, res) {
   if (req.method === 'GET') {
     if (req.query?.action === 'config') {
       const activeSheetId = await getActiveSheetId();
-      return res.status(200).json({ ok: true, activeSheetId, serviceEmail: SERVICE_EMAIL });
+      return res.status(200).json({
+        ok: true,
+        connected: Boolean(activeSheetId),
+        envConfigured: Boolean(sheets && MASTER_SHEET_ID),
+        activeSheetId: activeSheetId || '',
+        serviceEmail: SERVICE_EMAIL || 'Not configured (set GOOGLE_CREDS_JSON)',
+      });
     }
     return res.status(200).send('Bot Webhook Active');
   }
@@ -92,23 +145,43 @@ export default async function handler(req, res) {
 
   // ၂။ Mini App မှ Sheet ID အသစ် ပြောင်းလဲသိမ်းဆည်းခြင်း
   if (req.body?.action === 'update_sheet') {
+    if (!sheets || !MASTER_SHEET_ID) {
+      return res.status(400).json({
+        ok: false,
+        error: 'Google Credentials (GOOGLE_CREDS_JSON) နှင့် SHEET_ID ကို Environment Variables တွင် အရင်ထည့်သွင်းပါ။',
+      });
+    }
     const newId = extractSheetId(req.body.sheetInput);
     if (!newId) {
       return res.status(400).json({ ok: false, error: 'Sheet Link သို့မဟုတ် ID ပုံစံ မှားယွင်းနေပါသည်။' });
     }
     try {
       await setupTargetSheet(newId);
-      await sheets.spreadsheets.values.update({
-        spreadsheetId: MASTER_SHEET_ID,
-        range: 'Config!A1',
-        valueInputOption: 'RAW',
-        requestBody: { values: [[newId]] },
-      });
-      return res.status(200).json({ ok: true, activeSheetId: newId });
+      await saveConfigValue(newId);
+      return res.status(200).json({ ok: true, connected: true, activeSheetId: newId });
     } catch (err) {
       return res.status(403).json({
         ok: false,
         error: 'ထို Sheet ကို ဝင်ခွင့်မရှိပါ။ Service Email ကို Editor အဖြစ် Share အရင်ပေးပါ။',
+      });
+    }
+  }
+
+  // ၂.၅။ လက်ရှိ ချိတ်ဆက်ထားသော Sheet ကို Disconnect လုပ်ခြင်း
+  if (req.body?.action === 'disconnect_sheet') {
+    if (!sheets || !MASTER_SHEET_ID) {
+      return res.status(400).json({
+        ok: false,
+        error: 'Google Credentials (GOOGLE_CREDS_JSON) နှင့် SHEET_ID ကို Environment Variables တွင် အရင်ထည့်သွင်းပါ။',
+      });
+    }
+    try {
+      await saveConfigValue(DISCONNECTED_MARKER);
+      return res.status(200).json({ ok: true, connected: false, activeSheetId: '' });
+    } catch (err) {
+      return res.status(500).json({
+        ok: false,
+        error: `Disconnect လုပ်ရာတွင် အမှားအယွင်းရှိသည်: ${err.message}`,
       });
     }
   }
@@ -131,6 +204,13 @@ export default async function handler(req, res) {
 
     if (message.document) {
       const activeSheetId = await getActiveSheetId();
+      if (!activeSheetId) {
+        await sendTelegram(BOT_TOKEN, {
+          chat_id: chatId,
+          text: '⚠️ Google Sheet ချိတ်ဆက်ထားခြင်း မရှိပါ။ Sheet Manager မှတစ်ဆင့် Sheet အသစ် ချိတ်ဆက်ပေးပါ။',
+        });
+        return res.status(200).send('OK');
+      }
 
       const fileInfoRes = await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/getFile?file_id=${message.document.file_id}`);
       const fileInfo = await fileInfoRes.json();

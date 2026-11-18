@@ -55,7 +55,13 @@
     .btn-primary:hover { background: var(--accent-hover); color: #fff; }
     .btn-primary:disabled { opacity: 0.5; cursor: not-allowed; }
     .btn-outline { background: rgba(56, 189, 248, 0.12); color: var(--accent); border: 1px solid rgba(56, 189, 248, 0.3); }
-    .btn-open { width: 100%; margin-top: 10px; background: rgba(16, 185, 129, 0.15); color: #34d399; border: 1px solid rgba(16, 185, 129, 0.3); }
+    .btn-row { display: flex; gap: 8px; margin-top: 10px; }
+    .btn-row .btn { flex: 1; }
+    .btn-open { background: rgba(16, 185, 129, 0.15); color: #34d399; border: 1px solid rgba(16, 185, 129, 0.3); }
+    .btn-open:disabled { opacity: 0.45; cursor: not-allowed; }
+    .btn-danger { background: rgba(239, 68, 68, 0.15); color: #fca5a5; border: 1px solid rgba(239, 68, 68, 0.35); }
+    .btn-danger:hover:not(:disabled) { background: rgba(239, 68, 68, 0.28); color: #fff; }
+    .btn-danger:disabled { opacity: 0.45; cursor: not-allowed; }
     input[type="text"] {
       width: 100%; background: rgba(15, 23, 42, 0.9); border: 1px solid var(--border);
       border-radius: 10px; padding: 12px; color: var(--text); font-size: 0.88rem; outline: none;
@@ -90,7 +96,10 @@
       <div class="box-row">
         <span class="mono" id="activeSheetId">Loading...</span>
       </div>
-      <button class="btn btn-open" id="openSheetBtn" onclick="openCurrentSheet()">🔗 Google Sheet ဖွင့်ကြည့်ရန်</button>
+      <div class="btn-row">
+        <button class="btn btn-open" id="openSheetBtn" onclick="openCurrentSheet()">🔗 Google Sheet ဖွင့်ကြည့်ရန်</button>
+        <button class="btn btn-danger" id="disconnectBtn" onclick="disconnectSheet()">🔌 Disconnect</button>
+      </div>
     </div>
 
     <!-- 3. Change Sheet ID -->
@@ -111,16 +120,36 @@
 
     let currentId = '';
     let serviceEmail = '';
+    let envConfigured = true;
+
+    function updateSheetUI(sheetId, isEnvConfigured = true) {
+      currentId = sheetId || '';
+      envConfigured = isEnvConfigured;
+      const sheetEl = document.getElementById('activeSheetId');
+      const openBtn = document.getElementById('openSheetBtn');
+      const disconnectBtn = document.getElementById('disconnectBtn');
+
+      if (currentId) {
+        sheetEl.textContent = currentId;
+        openBtn.disabled = false;
+        disconnectBtn.disabled = false;
+      } else {
+        sheetEl.textContent = envConfigured
+          ? 'ချိတ်ဆက်ထားခြင်း မရှိပါ (Disconnected)'
+          : 'Not configured (set SHEET_ID)';
+        openBtn.disabled = true;
+        disconnectBtn.disabled = true;
+      }
+    }
 
     async function loadConfig() {
       try {
         const res = await fetch('/api/webhook?action=config');
         const data = await res.json();
         if (data.ok) {
-          currentId = data.activeSheetId;
           serviceEmail = data.serviceEmail;
           document.getElementById('serviceEmail').textContent = serviceEmail;
-          document.getElementById('activeSheetId').textContent = currentId;
+          updateSheetUI(data.activeSheetId, data.envConfigured !== false);
         }
       } catch (e) {
         document.getElementById('serviceEmail').textContent = 'Error loading';
@@ -146,6 +175,34 @@
       box.textContent = msg;
     }
 
+    async function disconnectSheet() {
+      if (!currentId) return;
+      const btn = document.getElementById('disconnectBtn');
+      btn.disabled = true;
+      btn.textContent = '⏳ ဖြုတ်နေသည်...';
+
+      try {
+        const res = await fetch('/api/webhook', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'disconnect_sheet' })
+        });
+        const data = await res.json();
+        if (data.ok) {
+          updateSheetUI('', true);
+          showStatus('ok', '✅ Google Sheet ချိတ်ဆက်မှုကို Disconnect လုပ်ပြီးပါပြီ။');
+        } else {
+          btn.disabled = false;
+          showStatus('err', `⚠️ ${data.error}`);
+        }
+      } catch (e) {
+        btn.disabled = false;
+        showStatus('err', '⚠️ ချိတ်ဆက်မှု အမှားအယွင်း ဖြစ်ပေါ်နေပါသည်။');
+      } finally {
+        btn.textContent = '🔌 Disconnect';
+      }
+    }
+
     async function updateSheet() {
       const input = document.getElementById('newSheetInput').value.trim();
       if (!input) {
@@ -165,8 +222,7 @@
         });
         const data = await res.json();
         if (data.ok) {
-          currentId = data.activeSheetId;
-          document.getElementById('activeSheetId').textContent = currentId;
+          updateSheetUI(data.activeSheetId, true);
           document.getElementById('newSheetInput').value = '';
           showStatus('ok', '✅ အောင်မြင်ပါသည်။ Deposit နှင့် Withdraw Tab များ အဆင်သင့် ပြင်ဆင်ပြီးပါပြီ။');
         } else {

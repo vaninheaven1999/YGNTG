@@ -2,7 +2,14 @@
   "name": "vercel-telegram-bot",
   "version": "1.0.0",
   "type": "module",
+  "scripts": {
+    "dev": "node server.js",
+    "start": "node server.js",
+    "build": "node --check server.js api/webhook.js parser.js",
+    "lint": "node --check server.js api/webhook.js parser.js"
+  },
   "dependencies": {
+    "express": "^5.3.0",
     "google-auth-library": "^9.14.0",
     "googleapis": "^144.0.0",
     "xlsx": "^0.18.5"
