@@ -125,7 +125,7 @@
       </div>
       <div class="acc-list" id="pendingAccList"></div>
       <div class="btn-row" style="margin-top: 14px;">
-        <button class="btn btn-success" id="submitBatchBtn" onclick="submitBatchRemarks()">💾 Save & Import</button>
+        <button class="btn btn-success" id="submitBatchBtn" onclick="submitBatchRemarks()">💾 Save & Fill Google Sheet</button>
         <button class="btn btn-danger" id="discardBatchBtn" onclick="discardBatch()">🗑️ Cancel</button>
       </div>
       <div class="status" id="pendingStatusBox"></div>
@@ -171,6 +171,7 @@
         <div class="acc-list" id="savedRemarksList">
           <div class="empty-note">Loading...</div>
         </div>
+        <button class="btn btn-primary hidden" id="saveAllRemarksBtn" onclick="saveAllRemarks()">💾 Save & Update Google Sheet</button>
         <div class="status" id="remarksStatusBox"></div>
       </div>
     </div>
@@ -264,6 +265,9 @@
         input.placeholder = 'Acc No / Remark ထည့်ပါ...';
         input.value = acc.remark || '';
         input.dataset.batchAccIdx = String(idx);
+        input.addEventListener('keydown', (e) => {
+          if (e.key === 'Enter') submitBatchRemarks();
+        });
 
         item.appendChild(createBankAccHeader(acc.bank, acc.accNo));
         item.appendChild(input);
@@ -273,9 +277,11 @@
 
     function renderSavedRemarks(remarks) {
       const container = document.getElementById('savedRemarksList');
+      const saveAllBtn = document.getElementById('saveAllRemarksBtn');
       container.innerHTML = '';
 
       if (!remarks || remarks.length === 0) {
+        saveAllBtn.classList.add('hidden');
         const empty = document.createElement('div');
         empty.className = 'empty-note';
         empty.textContent = 'မှတ်ထားသော Bank Account မရှိသေးပါ။';
@@ -283,7 +289,8 @@
         return;
       }
 
-      remarks.forEach((itemData) => {
+      saveAllBtn.classList.remove('hidden');
+      remarks.forEach((itemData, idx) => {
         const item = document.createElement('div');
         item.className = 'acc-item';
 
@@ -294,11 +301,9 @@
         input.type = 'text';
         input.value = itemData.remark || '';
         input.placeholder = 'Acc No / Remark...';
-
-        const saveBtn = document.createElement('button');
-        saveBtn.className = 'btn btn-sm btn-outline';
-        saveBtn.textContent = '💾 Save';
-        saveBtn.onclick = () => updateSavedRemark(itemData.bank, itemData.accNo, input.value, saveBtn);
+        input.dataset.savedIdx = String(idx);
+        input.dataset.savedBank = itemData.bank;
+        input.dataset.savedAcc = itemData.accNo;
 
         const delBtn = document.createElement('button');
         delBtn.className = 'btn btn-sm btn-danger';
@@ -306,7 +311,6 @@
         delBtn.onclick = () => deleteSavedRemark(itemData.bank, itemData.accNo, delBtn);
 
         editRow.appendChild(input);
-        editRow.appendChild(saveBtn);
         editRow.appendChild(delBtn);
 
         item.appendChild(createBankAccHeader(itemData.bank, itemData.accNo));
@@ -437,7 +441,7 @@
       } finally {
         submitBtn.disabled = false;
         discardBtn.disabled = false;
-        submitBtn.textContent = '💾 Save & Import';
+        submitBtn.textContent = '💾 Save & Fill Google Sheet';
       }
     }
 
@@ -465,23 +469,36 @@
       }
     }
 
-    async function updateSavedRemark(bank, accNo, remark, btn) {
-      const cleanRemark = String(remark || '').trim();
-      if (!cleanRemark) {
-        showBoxStatus('remarksStatusBox', 'err', '⚠️ Remark ဗလာ ထား၍မရပါ။ ဖျက်လိုပါက 🗑️ ကိုနှိပ်ပါ။');
+    async function saveAllRemarks() {
+      const inputs = Array.from(document.querySelectorAll('input[data-saved-idx]'));
+      const entries = inputs
+        .map((el) => ({
+          bank: el.dataset.savedBank,
+          accNo: el.dataset.savedAcc,
+          remark: el.value.trim(),
+        }))
+        .filter((e) => e.bank && e.accNo && e.remark);
+
+      if (entries.length === 0) {
+        showBoxStatus('remarksStatusBox', 'err', '⚠️ သိမ်းဆည်းရန် တန်ဖိုး ဖြည့်သွင်းပေးပါ။');
         return;
       }
+
+      const btn = document.getElementById('saveAllRemarksBtn');
       btn.disabled = true;
+      btn.textContent = '⏳ Google Sheet ထဲ Update လုပ်နေသည်...';
+
       try {
         const res = await fetch('/api/webhook', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ action: 'upsert_remark', bank, accNo, remark: cleanRemark }),
+          body: JSON.stringify({ action: 'upsert_remarks', entries }),
         });
         const data = await res.json();
         if (data.ok) {
           renderSavedRemarks(data.remarks);
-          showBoxStatus('remarksStatusBox', 'ok', `✅ ${bank} (${accNo}) ၏ Remark ကို ပြင်ဆင်ပြီးပါပြီ။`);
+          const syncText = data.updatedCount > 0 ? ` (Google Sheet စာရင်း ${data.updatedCount} ကြောင်းပါ Update ပြီးပါပြီ)` : '';
+          showBoxStatus('remarksStatusBox', 'ok', `✅ သိမ်းဆည်းပြီးပါပြီ။${syncText}`);
         } else {
           showBoxStatus('remarksStatusBox', 'err', `⚠️ ${data.error}`);
         }
@@ -489,6 +506,7 @@
         showBoxStatus('remarksStatusBox', 'err', '⚠️ ချိတ်ဆက်မှု အမှားအယွင်း ဖြစ်ပေါ်နေပါသည်။');
       } finally {
         btn.disabled = false;
+        btn.textContent = '💾 Save & Update Google Sheet';
       }
     }
 

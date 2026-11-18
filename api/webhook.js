@@ -1,5 +1,5 @@
 import { google } from 'googleapis';
-import { parseDepositExcel, LEDGER_HEADERS } from '../parser.js';
+import { parseDepositExcel, parseSheetDateTimeMs, LEDGER_HEADERS } from '../parser.js';
 
 const DISCONNECTED_MARKER = 'DISCONNECTED';
 const BANK_REMARKS_TAB = 'BankRemarks';
@@ -325,7 +325,7 @@ export default async function handler(req, res) {
 
   async function deduplicateRows(spreadsheetId, targetTab, candidateRows) {
     await ensureTab(spreadsheetId, targetTab, LEDGER_HEADERS);
-    const rangeName = `${targetTab}!A:H`;
+    const rangeName = `${targetTab}!A:G`;
     const existingRes = await sheets.spreadsheets.values.get({
       spreadsheetId,
       range: rangeName,
@@ -363,6 +363,109 @@ export default async function handler(req, res) {
     }
 
     return { newRows, duplicateCount };
+  }
+
+  async function writeSortedLedgerRows(spreadsheetId, targetTab, newRowsWithAccNo) {
+    if (!newRowsWithAccNo || newRowsWithAccNo.length === 0) return;
+    await ensureTab(spreadsheetId, targetTab, LEDGER_HEADERS);
+
+    const existingRes = await sheets.spreadsheets.values.get({
+      spreadsheetId,
+      range: `${targetTab}!A2:G`,
+    });
+    const rawExisting = existingRes.data.values || [];
+    const existingRows = rawExisting
+      .filter((r) => r.some((cell) => String(cell ?? '').trim() !== ''))
+      .map((r) => Array.from({ length: 7 }, (_, idx) => r[idx] ?? ''));
+
+    const normalizedNew = newRowsWithAccNo.map((r) =>
+      Array.from({ length: 7 }, (_, idx) => r[idx] ?? '')
+    );
+
+    const combined = [...existingRows, ...normalizedNew].sort(
+      (a, b) => parseSheetDateTimeMs(a[0], a[5]) - parseSheetDateTimeMs(b[0], b[5])
+    );
+
+    await sheets.spreadsheets.values.update({
+      spreadsheetId,
+      range: `${targetTab}!A2:G${combined.length + 1}`,
+      valueInputOption: 'USER_ENTERED',
+      requestBody: { values: combined },
+    });
+
+    if (rawExisting.length > combined.length) {
+      await sheets.spreadsheets.values.clear({
+        spreadsheetId,
+        range: `${targetTab}!A${combined.length + 2}:G${rawExisting.length + 1}`,
+      });
+    }
+  }
+
+  function applyBankValueToRow(row, enteredVal) {
+    const cleanVal = String(enteredVal || '').trim();
+    const base = Array.from({ length: 7 }, (_, idx) => row[idx] ?? '');
+    if (cleanVal) {
+      base[2] = cleanVal;
+    }
+    return base;
+  }
+
+  async function syncUpdatedBankToLedger(spreadsheetId, changes) {
+    if (!spreadsheetId || !changes || changes.length === 0) return 0;
+    let totalUpdated = 0;
+
+    for (const tab of ['Deposit', 'Withdraw']) {
+      let resData;
+      try {
+        resData = await sheets.spreadsheets.values.get({
+          spreadsheetId,
+          range: `${tab}!A2:G`,
+        });
+      } catch {
+        continue;
+      }
+
+      const rawRows = resData.data.values || [];
+      if (rawRows.length === 0) continue;
+
+      let tabChanged = false;
+      const updatedRows = rawRows.map((rawRow) => {
+        const row = Array.from({ length: 7 }, (_, idx) => rawRow[idx] ?? '');
+        const rowBank = String(row[1] || '').trim().toLowerCase();
+        const rowAcc = String(row[2] || '').trim();
+
+        for (const ch of changes) {
+          const chBank = String(ch.bank || '').trim().toLowerCase();
+          const chAcc = String(ch.accNo || '').trim();
+          const oldVal = String(ch.oldRemark || '').trim();
+          const newVal = String(ch.newRemark || '').trim();
+          if (!newVal || rowBank !== chBank) continue;
+
+          const matchesAcc =
+            rowAcc.toLowerCase() === chAcc.toLowerCase() ||
+            rowAcc === '0000' ||
+            (oldVal && rowAcc === oldVal);
+
+          if (matchesAcc && row[2] !== newVal) {
+            row[2] = newVal;
+            tabChanged = true;
+            totalUpdated++;
+          }
+        }
+        return row;
+      });
+
+      if (tabChanged) {
+        await sheets.spreadsheets.values.update({
+          spreadsheetId,
+          range: `${tab}!A2:G${updatedRows.length + 1}`,
+          valueInputOption: 'USER_ENTERED',
+          requestBody: { values: updatedRows },
+        });
+      }
+    }
+
+    return totalUpdated;
   }
 
   function summarizeAccounts(rows, remarksMap) {
@@ -487,23 +590,44 @@ export default async function handler(req, res) {
     }
   }
 
-  // ၂.၆။ Saved Bank Remark အသစ်ထည့်/ပြင်ဆင်ခြင်း
-  if (req.body?.action === 'upsert_remark') {
+  // ၂.၆။ Saved Bank Remark အသစ်ထည့်/ပြင်ဆင်ခြင်း (Google Sheet ပါ တစ်ခါတည်း Update လုပ်မည်)
+  if (req.body?.action === 'upsert_remark' || req.body?.action === 'upsert_remarks') {
     if (!sheets || !MASTER_SHEET_ID) {
       return res.status(400).json({
         ok: false,
         error: 'Google Credentials (GOOGLE_CREDS_JSON) နှင့် SHEET_ID ကို Environment Variables တွင် အရင်ထည့်သွင်းပါ။',
       });
     }
-    const bank = String(req.body.bank || '').trim();
-    const accNo = String(req.body.accNo || '').trim();
-    const remark = String(req.body.remark || '').trim();
-    if (!bank || !accNo || !remark) {
-      return res.status(400).json({ ok: false, error: 'Bank, Acc No နှင့် Remark အားလုံး ဖြည့်သွင်းပေးပါ။' });
+    const entries = req.body.action === 'upsert_remarks'
+      ? (Array.isArray(req.body.entries) ? req.body.entries : [])
+      : [{ bank: req.body.bank, accNo: req.body.accNo, remark: req.body.remark }];
+
+    const validEntries = entries
+      .map((e) => ({
+        bank: String(e.bank || '').trim(),
+        accNo: String(e.accNo || '').trim(),
+        remark: String(e.remark || '').trim(),
+      }))
+      .filter((e) => e.bank && e.accNo && e.remark);
+
+    if (validEntries.length === 0) {
+      return res.status(400).json({ ok: false, error: 'Bank, Acc No နှင့် တန်ဖိုးများကို ဖြည့်သွင်းပေးပါ။' });
     }
+
     try {
-      const remarks = await upsertBankRemarks([{ bank, accNo, remark }]);
-      return res.status(200).json({ ok: true, remarks });
+      const { map: oldMap } = await getBankRemarks();
+      const changes = validEntries.map((e) => ({
+        bank: e.bank,
+        accNo: e.accNo,
+        oldRemark: oldMap.get(makeBankKey(e.bank, e.accNo)) || '',
+        newRemark: e.remark,
+      }));
+
+      const remarks = await upsertBankRemarks(validEntries);
+      const activeSheetId = await getActiveSheetId();
+      const updatedCount = await syncUpdatedBankToLedger(activeSheetId, changes);
+
+      return res.status(200).json({ ok: true, remarks, updatedCount });
     } catch (err) {
       return res.status(500).json({ ok: false, error: err.message });
     }
@@ -560,16 +684,11 @@ export default async function handler(req, res) {
       const { newRows, duplicateCount: extraDup } = await deduplicateRows(targetSheetId, batch.targetTab, batch.rows);
       const rowsWithRemarks = newRows.map((row) => {
         const key = makeBankKey(row[1], row[2]);
-        return [...row.slice(0, 7), remarkMap.get(key) || ''];
+        return applyBankValueToRow(row, remarkMap.get(key) || '');
       });
 
       if (rowsWithRemarks.length > 0) {
-        await sheets.spreadsheets.values.append({
-          spreadsheetId: targetSheetId,
-          range: `${batch.targetTab}!A:H`,
-          valueInputOption: 'USER_ENTERED',
-          requestBody: { values: rowsWithRemarks },
-        });
+        await writeSortedLedgerRows(targetSheetId, batch.targetTab, rowsWithRemarks);
       }
 
       await deletePendingBatch(batch.batchId);
@@ -647,10 +766,25 @@ export default async function handler(req, res) {
 
       const fileInfoRes = await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/getFile?file_id=${message.document.file_id}`);
       const fileInfo = await fileInfoRes.json();
+      if (!fileInfo.ok || !fileInfo.result?.file_path) {
+        await sendTelegram(BOT_TOKEN, {
+          chat_id: chatId,
+          text: '⚠️ Telegram မှ Excel ဖိုင်ကို Download ရယူ၍ မရပါ။ ထပ်မံကြိုးစားကြည့်ပါ။',
+        });
+        return res.status(200).send('OK');
+      }
       const fileRes = await fetch(`https://api.telegram.org/file/bot${BOT_TOKEN}/${fileInfo.result.file_path}`);
       const arrayBuffer = await fileRes.arrayBuffer();
 
       const parsedRows = parseDepositExcel(arrayBuffer);
+
+      if (parsedRows.length === 0) {
+        await sendTelegram(BOT_TOKEN, {
+          chat_id: chatId,
+          text: '⚠️ Excel ဖိုင်ထဲတွင် ဖတ်၍ရသော စာရင်းအချက်အလက် မတွေ့ပါ။ Header များကို စစ်ဆေးပေးပါ။',
+        });
+        return res.status(200).send('OK');
+      }
 
       if (parsedRows.length > 0) {
         const isWithdraw = parsedRows[0][3] === 'Withdraw';
@@ -673,15 +807,10 @@ export default async function handler(req, res) {
         if (missingAccounts.length === 0) {
           const rowsWithRemarks = newRows.map((row) => {
             const key = makeBankKey(row[1], row[2]);
-            return [...row.slice(0, 7), remarksMap.get(key) || ''];
+            return applyBankValueToRow(row, remarksMap.get(key) || '');
           });
 
-          await sheets.spreadsheets.values.append({
-            spreadsheetId: activeSheetId,
-            range: `${targetTab}!A:H`,
-            valueInputOption: 'USER_ENTERED',
-            requestBody: { values: rowsWithRemarks },
-          });
+          await writeSortedLedgerRows(activeSheetId, targetTab, rowsWithRemarks);
 
           const skipMsg = duplicateCount > 0 ? `\n(စာရင်းဟောင်း ${duplicateCount} ကြောင်း ထပ်နေ၍ ကျော်လိုက်ပါသည်)` : '';
           await sendTelegram(BOT_TOKEN, {
