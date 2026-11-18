@@ -16,6 +16,7 @@
       --accent-hover: #0284c7;
       --success: #10b981;
       --danger: #ef4444;
+      --warn: #f59e0b;
     }
     * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
     body {
@@ -24,7 +25,7 @@
       padding: 16px;
       min-height: 100vh;
     }
-    .container { max-width: 480px; margin: 0 auto; display: flex; flex-direction: column; gap: 16px; }
+    .container { max-width: 480px; margin: 0 auto; display: flex; flex-direction: column; gap: 16px; padding-bottom: 32px; }
     .header { text-align: center; padding: 8px 0; }
     .header h2 { font-size: 1.25rem; font-weight: 700; letter-spacing: 0.3px; }
     .header p { font-size: 0.82rem; color: var(--muted); margin-top: 4px; }
@@ -36,6 +37,10 @@
       border-radius: 16px;
       padding: 16px;
       box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+    }
+    .card-highlight {
+      border-color: rgba(245, 158, 11, 0.5);
+      box-shadow: 0 8px 28px rgba(245, 158, 11, 0.14);
     }
     .label { font-size: 0.78rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.6px; margin-bottom: 8px; display: block; }
     .box-row {
@@ -52,7 +57,7 @@
     }
     .btn-sm { padding: 7px 11px; font-size: 0.78rem; flex-shrink: 0; }
     .btn-primary { background: var(--accent); color: #0f172a; width: 100%; margin-top: 12px; padding: 12px; }
-    .btn-primary:hover { background: var(--accent-hover); color: #fff; }
+    .btn-primary:hover:not(:disabled) { background: var(--accent-hover); color: #fff; }
     .btn-primary:disabled { opacity: 0.5; cursor: not-allowed; }
     .btn-outline { background: rgba(56, 189, 248, 0.12); color: var(--accent); border: 1px solid rgba(56, 189, 248, 0.3); }
     .btn-row { display: flex; gap: 8px; margin-top: 10px; }
@@ -62,9 +67,12 @@
     .btn-danger { background: rgba(239, 68, 68, 0.15); color: #fca5a5; border: 1px solid rgba(239, 68, 68, 0.35); }
     .btn-danger:hover:not(:disabled) { background: rgba(239, 68, 68, 0.28); color: #fff; }
     .btn-danger:disabled { opacity: 0.45; cursor: not-allowed; }
+    .btn-success { background: var(--success); color: #06281e; }
+    .btn-success:hover:not(:disabled) { background: #059669; color: #fff; }
+    .btn-success:disabled { opacity: 0.5; cursor: not-allowed; }
     input[type="text"] {
       width: 100%; background: rgba(15, 23, 42, 0.9); border: 1px solid var(--border);
-      border-radius: 10px; padding: 12px; color: var(--text); font-size: 0.88rem; outline: none;
+      border-radius: 10px; padding: 10px 12px; color: var(--text); font-size: 0.85rem; outline: none;
     }
     input[type="text"]:focus { border-color: var(--accent); }
     .status {
@@ -72,6 +80,34 @@
     }
     .status.ok { display: block; background: rgba(16, 185, 129, 0.15); border: 1px solid rgba(16, 185, 129, 0.4); color: #6ee7b7; }
     .status.err { display: block; background: rgba(239, 68, 68, 0.15); border: 1px solid rgba(239, 68, 68, 0.4); color: #fca5a5; }
+    .hidden { display: none !important; }
+    .meta-sub { font-size: 0.8rem; color: var(--muted); margin-bottom: 12px; line-height: 1.4; }
+    .acc-list { display: flex; flex-direction: column; gap: 10px; }
+    .acc-item {
+      background: rgba(15, 23, 42, 0.85);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 12px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+    .acc-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
+    .acc-title { font-size: 0.86rem; font-weight: 600; color: #f1f5f9; }
+    .badge {
+      font-size: 0.7rem; font-weight: 700; padding: 3px 8px; border-radius: 999px;
+      text-transform: uppercase; letter-spacing: 0.4px;
+    }
+    .badge-new { background: rgba(245, 158, 11, 0.18); color: #fbbf24; border: 1px solid rgba(245, 158, 11, 0.4); }
+    .badge-saved { background: rgba(16, 185, 129, 0.15); color: #34d399; border: 1px solid rgba(16, 185, 129, 0.35); }
+    .check-row { display: flex; align-items: center; gap: 8px; font-size: 0.78rem; color: var(--muted); cursor: pointer; }
+    .check-row input { accent-color: var(--accent); width: 15px; height: 15px; }
+    .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+    .remark-edit-row { display: flex; gap: 6px; align-items: center; }
+    .remark-edit-row input { flex: 1; padding: 8px 10px; font-size: 0.82rem; }
+    .empty-note { font-size: 0.82rem; color: var(--muted); text-align: center; padding: 12px 0; }
+    .section-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
+    .section-head .label { margin-bottom: 0; }
   </style>
 </head>
 <body>
@@ -79,6 +115,19 @@
     <div class="header">
       <h2>📊 Google Sheet Manager</h2>
       <p>Excel Auto-Ledger Configuration</p>
+    </div>
+
+    <!-- 0. Pending Excel Import Remarks (Shown when a file has new Bank Accs) -->
+    <div class="card card-highlight hidden" id="pendingCard">
+      <div class="section-head">
+        <span class="label" style="color: #fbbf24;" id="pendingSummary">📝 BANK ACC REMARKS</span>
+      </div>
+      <div class="acc-list" id="pendingAccList"></div>
+      <div class="btn-row" style="margin-top: 14px;">
+        <button class="btn btn-success" id="submitBatchBtn" onclick="submitBatchRemarks()">💾 Save & Import</button>
+        <button class="btn btn-danger" id="discardBatchBtn" onclick="discardBatch()">🗑️ Cancel</button>
+      </div>
+      <div class="status" id="pendingStatusBox"></div>
     </div>
 
     <!-- 1. Service Account Email -->
@@ -109,6 +158,21 @@
       <button class="btn btn-primary" id="saveBtn" onclick="updateSheet()">💾 Save & Connect Sheet</button>
       <div class="status" id="statusBox"></div>
     </div>
+
+    <!-- 4. Saved Bank Remarks Manager (Collapsed behind button) -->
+    <div class="card">
+      <button class="btn btn-outline" id="toggleRemarksBtn" onclick="toggleRemarksPanel()" style="width: 100%; justify-content: space-between; padding: 12px 14px;">
+        <span>🏷️ BANK ACC REMARKS</span>
+        <span id="remarksChevron">▾</span>
+      </button>
+
+      <div class="hidden" id="remarksPanel" style="margin-top: 12px;">
+        <div class="acc-list" id="savedRemarksList">
+          <div class="empty-note">Loading...</div>
+        </div>
+        <div class="status" id="remarksStatusBox"></div>
+      </div>
+    </div>
   </div>
 
   <script>
@@ -118,9 +182,24 @@
       tg.expand();
     }
 
+    const urlParams = new URLSearchParams(window.location.search);
+    let requestedBatchId = urlParams.get('batchId') || '';
+
     let currentId = '';
     let serviceEmail = '';
     let envConfigured = true;
+    let activeBatch = null;
+    let remarksLoaded = false;
+
+    function showBoxStatus(boxId, type, msg) {
+      const box = document.getElementById(boxId);
+      box.className = `status ${type}`;
+      box.textContent = msg;
+    }
+
+    function showStatus(type, msg) {
+      showBoxStatus('statusBox', type, msg);
+    }
 
     function updateSheetUI(sheetId, isEnvConfigured = true) {
       currentId = sheetId || '';
@@ -142,6 +221,137 @@
       }
     }
 
+    function formatBankLabel(bank, accNo) {
+      return accNo && accNo !== '0000' ? `${bank} — ${accNo}` : bank;
+    }
+
+    function renderPendingBatch(batch) {
+      activeBatch = batch;
+      const card = document.getElementById('pendingCard');
+      const list = document.getElementById('pendingAccList');
+      const summary = document.getElementById('pendingSummary');
+
+      if (!batch || !batch.accounts || batch.accounts.length === 0) {
+        card.classList.add('hidden');
+        list.innerHTML = '';
+        return;
+      }
+
+      card.classList.remove('hidden');
+      summary.textContent = `📝 ${batch.targetTab} — BANK ACC REMARKS`;
+
+      list.innerHTML = '';
+      batch.accounts.forEach((acc, idx) => {
+        const item = document.createElement('div');
+        item.className = 'acc-item';
+
+        const title = document.createElement('span');
+        title.className = 'acc-title';
+        title.textContent = formatBankLabel(acc.bank, acc.accNo);
+
+        const input = document.createElement('input');
+        input.type = 'text';
+        input.placeholder = 'Acc No / Remark ထည့်ပါ...';
+        input.value = acc.remark || '';
+        input.dataset.batchAccIdx = String(idx);
+
+        item.appendChild(title);
+        item.appendChild(input);
+        list.appendChild(item);
+      });
+    }
+
+    function renderSavedRemarks(remarks) {
+      const container = document.getElementById('savedRemarksList');
+      container.innerHTML = '';
+
+      if (!remarks || remarks.length === 0) {
+        const empty = document.createElement('div');
+        empty.className = 'empty-note';
+        empty.textContent = 'မှတ်ထားသော Bank Account မရှိသေးပါ။';
+        container.appendChild(empty);
+        return;
+      }
+
+      remarks.forEach((itemData) => {
+        const item = document.createElement('div');
+        item.className = 'acc-item';
+
+        const title = document.createElement('span');
+        title.className = 'acc-title';
+        title.textContent = formatBankLabel(itemData.bank, itemData.accNo);
+
+        const editRow = document.createElement('div');
+        editRow.className = 'remark-edit-row';
+
+        const input = document.createElement('input');
+        input.type = 'text';
+        input.value = itemData.remark || '';
+        input.placeholder = 'Acc No / Remark...';
+
+        const saveBtn = document.createElement('button');
+        saveBtn.className = 'btn btn-sm btn-outline';
+        saveBtn.textContent = '💾 Save';
+        saveBtn.onclick = () => updateSavedRemark(itemData.bank, itemData.accNo, input.value, saveBtn);
+
+        const delBtn = document.createElement('button');
+        delBtn.className = 'btn btn-sm btn-danger';
+        delBtn.textContent = '🗑️';
+        delBtn.onclick = () => deleteSavedRemark(itemData.bank, itemData.accNo, delBtn);
+
+        editRow.appendChild(input);
+        editRow.appendChild(saveBtn);
+        editRow.appendChild(delBtn);
+
+        item.appendChild(title);
+        item.appendChild(editRow);
+        container.appendChild(item);
+      });
+    }
+
+    async function loadPendingBatch(batchId) {
+      try {
+        const query = batchId ? `&batchId=${encodeURIComponent(batchId)}` : '';
+        const res = await fetch(`/api/webhook?action=pending_batch${query}`);
+        const data = await res.json();
+        if (data.ok) {
+          renderPendingBatch(data.batch);
+        }
+      } catch (e) {
+        // Ignore if unconfigured
+      }
+    }
+
+    async function toggleRemarksPanel() {
+      const panel = document.getElementById('remarksPanel');
+      const chevron = document.getElementById('remarksChevron');
+      const isHidden = panel.classList.contains('hidden');
+
+      if (isHidden) {
+        panel.classList.remove('hidden');
+        chevron.textContent = '▴';
+        if (!remarksLoaded) {
+          await loadSavedRemarks();
+          remarksLoaded = true;
+        }
+      } else {
+        panel.classList.add('hidden');
+        chevron.textContent = '▾';
+      }
+    }
+
+    async function loadSavedRemarks() {
+      try {
+        const res = await fetch('/api/webhook?action=remarks');
+        const data = await res.json();
+        if (data.ok) {
+          renderSavedRemarks(data.remarks);
+        }
+      } catch (e) {
+        document.getElementById('savedRemarksList').innerHTML = '<div class="empty-note">Error loading remarks</div>';
+      }
+    }
+
     async function loadConfig() {
       try {
         const res = await fetch('/api/webhook?action=config');
@@ -150,6 +360,11 @@
           serviceEmail = data.serviceEmail;
           document.getElementById('serviceEmail').textContent = serviceEmail;
           updateSheetUI(data.activeSheetId, data.envConfigured !== false);
+
+          const batchToLoad = requestedBatchId || data.latestPendingBatchId;
+          if (batchToLoad) {
+            await loadPendingBatch(batchToLoad);
+          }
         }
       } catch (e) {
         document.getElementById('serviceEmail').textContent = 'Error loading';
@@ -169,10 +384,128 @@
       else window.open(url, '_blank');
     }
 
-    function showStatus(type, msg) {
-      const box = document.getElementById('statusBox');
-      box.className = `status ${type}`;
-      box.textContent = msg;
+    async function submitBatchRemarks() {
+      if (!activeBatch) return;
+      const remarksPayload = activeBatch.accounts.map((acc, idx) => {
+        const inputEl = document.querySelector(`input[data-batch-acc-idx="${idx}"]`);
+        return {
+          bank: acc.bank,
+          accNo: acc.accNo,
+          remark: inputEl ? inputEl.value.trim() : '',
+          saveForFuture: true,
+        };
+      });
+
+      const submitBtn = document.getElementById('submitBatchBtn');
+      const discardBtn = document.getElementById('discardBatchBtn');
+      submitBtn.disabled = true;
+      discardBtn.disabled = true;
+      submitBtn.textContent = '⏳ သိမ်းဆည်းနေသည်...';
+
+      try {
+        const res = await fetch('/api/webhook', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            action: 'submit_batch_remarks',
+            batchId: activeBatch.batchId,
+            remarks: remarksPayload,
+          }),
+        });
+        const data = await res.json();
+        if (data.ok) {
+          renderPendingBatch(null);
+          if (data.remarks) {
+            renderSavedRemarks(data.remarks);
+            remarksLoaded = true;
+          }
+          showStatus('ok', `✅ [${data.targetTab}] ထဲသို့ စာရင်း (${data.insertedCount}) ကြောင်း သိမ်းပြီးပါပြီ။`);
+          if (tg && requestedBatchId) {
+            setTimeout(() => tg.close(), 1200);
+          }
+        } else {
+          showBoxStatus('pendingStatusBox', 'err', `⚠️ ${data.error}`);
+        }
+      } catch (e) {
+        showBoxStatus('pendingStatusBox', 'err', '⚠️ ချိတ်ဆက်မှု အမှားအယွင်း ဖြစ်ပေါ်နေပါသည်။');
+      } finally {
+        submitBtn.disabled = false;
+        discardBtn.disabled = false;
+        submitBtn.textContent = '💾 Save & Import';
+      }
+    }
+
+    async function discardBatch() {
+      if (!activeBatch) return;
+      const discardBtn = document.getElementById('discardBatchBtn');
+      discardBtn.disabled = true;
+      try {
+        const res = await fetch('/api/webhook', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'discard_batch', batchId: activeBatch.batchId }),
+        });
+        const data = await res.json();
+        if (data.ok) {
+          renderPendingBatch(null);
+          showStatus('ok', '🗑️ Pending Excel စာရင်းကို ပယ်ဖျက်လိုက်ပါပြီ။');
+        } else {
+          showBoxStatus('pendingStatusBox', 'err', `⚠️ ${data.error}`);
+        }
+      } catch (e) {
+        showBoxStatus('pendingStatusBox', 'err', '⚠️ ချိတ်ဆက်မှု အမှားအယွင်း ဖြစ်ပေါ်နေပါသည်။');
+      } finally {
+        discardBtn.disabled = false;
+      }
+    }
+
+    async function updateSavedRemark(bank, accNo, remark, btn) {
+      const cleanRemark = String(remark || '').trim();
+      if (!cleanRemark) {
+        showBoxStatus('remarksStatusBox', 'err', '⚠️ Remark ဗလာ ထား၍မရပါ။ ဖျက်လိုပါက 🗑️ ကိုနှိပ်ပါ။');
+        return;
+      }
+      btn.disabled = true;
+      try {
+        const res = await fetch('/api/webhook', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'upsert_remark', bank, accNo, remark: cleanRemark }),
+        });
+        const data = await res.json();
+        if (data.ok) {
+          renderSavedRemarks(data.remarks);
+          showBoxStatus('remarksStatusBox', 'ok', `✅ ${bank} (${accNo}) ၏ Remark ကို ပြင်ဆင်ပြီးပါပြီ။`);
+        } else {
+          showBoxStatus('remarksStatusBox', 'err', `⚠️ ${data.error}`);
+        }
+      } catch (e) {
+        showBoxStatus('remarksStatusBox', 'err', '⚠️ ချိတ်ဆက်မှု အမှားအယွင်း ဖြစ်ပေါ်နေပါသည်။');
+      } finally {
+        btn.disabled = false;
+      }
+    }
+
+    async function deleteSavedRemark(bank, accNo, btn) {
+      btn.disabled = true;
+      try {
+        const res = await fetch('/api/webhook', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'delete_remark', bank, accNo }),
+        });
+        const data = await res.json();
+        if (data.ok) {
+          renderSavedRemarks(data.remarks);
+          showBoxStatus('remarksStatusBox', 'ok', `🗑️ ${bank} (${accNo}) ကို ဖျက်ပြီးပါပြီ။`);
+        } else {
+          showBoxStatus('remarksStatusBox', 'err', `⚠️ ${data.error}`);
+        }
+      } catch (e) {
+        showBoxStatus('remarksStatusBox', 'err', '⚠️ ချိတ်ဆက်မှု အမှားအယွင်း ဖြစ်ပေါ်နေပါသည်။');
+      } finally {
+        btn.disabled = false;
+      }
     }
 
     async function disconnectSheet() {

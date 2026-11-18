@@ -1,6 +1,6 @@
 import * as XLSX from 'xlsx';
 
-export const LEDGER_HEADERS = ['Date', 'Bank', 'Acc No', 'Type', 'Username', 'Time', 'Amount'];
+export const LEDGER_HEADERS = ['Date', 'Bank', 'Acc No', 'Type', 'Username', 'Time', 'Amount', 'Remark'];
 
 function parseNumeric(val) {
   if (typeof val === 'number') return Number.isNaN(val) ? 0 : val;
