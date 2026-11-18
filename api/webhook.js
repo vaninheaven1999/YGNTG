@@ -378,9 +378,10 @@ export default async function handler(req, res) {
       .filter((r) => r.some((cell) => String(cell ?? '').trim() !== ''))
       .map((r) => Array.from({ length: 7 }, (_, idx) => r[idx] ?? ''));
 
-    const normalizedNew = newRowsWithAccNo.map((r) =>
-      Array.from({ length: 7 }, (_, idx) => r[idx] ?? '')
-    );
+    const normalizedNew = newRowsWithAccNo
+      .map((r) => Array.from({ length: 7 }, (_, idx) => r[idx] ?? ''))
+      .filter((r) => Number(String(r[6] || '0').replace(/,/g, '')) > 0);
+    if (normalizedNew.length === 0) return;
 
     const combined = [...existingRows, ...normalizedNew].sort(
       (a, b) => parseSheetDateTimeMs(a[0], a[5]) - parseSheetDateTimeMs(b[0], b[5])

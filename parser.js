@@ -143,6 +143,7 @@ function isHeaderKeywordCell(cell) {
   const c = raw.toLowerCase();
   return (
     raw === 'จาก' ||
+    raw.includes('รายละเอียด') ||
     raw.includes('วันที่') ||
     raw.includes('วันเวลา') ||
     raw === 'เวลา' ||
@@ -191,8 +192,10 @@ export function parseDepositExcel(buffer) {
   }
 
   const headers = jsonData[headerIndex].map((h) => String(h || '').trim());
-  const isWithdrawFile = headers.some((h) => h.includes('ยอดถอน') || h.toLowerCase().includes('withdraw'));
   const hasJakColumn = headers.some((h) => h === 'จาก');
+  const hasDetailColumn = headers.some((h) => h === 'รายละเอียด' || h.includes('รายละเอียด'));
+  const hasDepositColumn = headers.some((h) => h.includes('ยอดฝาก') || h.toLowerCase() === 'deposit');
+  const isWithdrawFile = headers.some((h) => h.includes('ยอดถอน') || h.toLowerCase().includes('withdraw'));
 
   const rawRows = jsonData.slice(headerIndex + 1).map((row) => {
     const obj = {};
@@ -221,6 +224,8 @@ export function parseDepositExcel(buffer) {
         obj.bank = String(val ?? '').trim();
       } else if (h.includes('เลขบัญชี') || h.includes('เลขที่บัญชี') || lowerH.includes('acc')) {
         obj.accNo = formatAccountNo(val);
+      } else if (h === 'รายละเอียด' || h.includes('รายละเอียด')) {
+        obj.detail = String(val ?? '').trim();
       } else if (
         !h.includes('คงเหลือ') &&
         !lowerH.includes('balance') &&
@@ -230,21 +235,36 @@ export function parseDepositExcel(buffer) {
           h.includes('จำนวนเงิน') ||
           h.includes('ยอดโอน') ||
           h.includes('ยอดเงิน') ||
+          h === 'จำนวน' ||
+          h === 'ยอด' ||
           lowerH.includes('deposit') ||
           lowerH.includes('withdraw') ||
           lowerH.includes('amount')
         )
       ) {
         const parsed = parseNumeric(val);
+        if (h.includes('ยอดฝาก') || lowerH === 'deposit') {
+          obj.explicitDepositAmount = parsed;
+        }
         if (parsed > 0 || obj.amount == null) obj.amount = parsed;
       }
     });
+
+    if (!isWithdrawFile && hasDepositColumn && obj.explicitDepositAmount !== undefined) {
+      obj.amount = obj.explicitDepositAmount;
+    }
 
     if (obj.datePart) {
       obj.dateTime = obj.timePart ? `${obj.datePart} ${obj.timePart}` : obj.datePart;
     }
     return obj;
-  }).filter((r) => (r.dateTime || r.username) && Number(r.amount) > 0);
+  }).filter((r) => {
+    if (!(r.dateTime || r.username) || !(Number(r.amount) > 0)) return false;
+    if (hasDetailColumn && !isWithdrawFile) {
+      return String(r.detail || '').toLowerCase().includes('deposit');
+    }
+    return true;
+  });
 
   const parsed = rawRows.map((raw) => {
     const { dateStr, timeStr } = extractDateAndTime(raw.dateTime);
