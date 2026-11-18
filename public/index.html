@@ -94,6 +94,7 @@
     }
     .acc-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
     .acc-title { font-size: 0.86rem; font-weight: 600; color: #f1f5f9; }
+    .acc-meta { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.8rem; color: var(--accent); }
     .badge {
       font-size: 0.7rem; font-weight: 700; padding: 3px 8px; border-radius: 999px;
       text-transform: uppercase; letter-spacing: 0.4px;
@@ -221,8 +222,21 @@
       }
     }
 
-    function formatBankLabel(bank, accNo) {
-      return accNo && accNo !== '0000' ? `${bank} — ${accNo}` : bank;
+    function createBankAccHeader(bank, accNo) {
+      const top = document.createElement('div');
+      top.className = 'acc-top';
+
+      const bankSpan = document.createElement('span');
+      bankSpan.className = 'acc-title';
+      bankSpan.textContent = `Bank Name: ${bank || '-'}`;
+
+      const accSpan = document.createElement('span');
+      accSpan.className = 'acc-meta';
+      accSpan.textContent = `Acc No: ${accNo || '-'}`;
+
+      top.appendChild(bankSpan);
+      top.appendChild(accSpan);
+      return top;
     }
 
     function renderPendingBatch(batch) {
@@ -245,17 +259,13 @@
         const item = document.createElement('div');
         item.className = 'acc-item';
 
-        const title = document.createElement('span');
-        title.className = 'acc-title';
-        title.textContent = formatBankLabel(acc.bank, acc.accNo);
-
         const input = document.createElement('input');
         input.type = 'text';
         input.placeholder = 'Acc No / Remark ထည့်ပါ...';
         input.value = acc.remark || '';
         input.dataset.batchAccIdx = String(idx);
 
-        item.appendChild(title);
+        item.appendChild(createBankAccHeader(acc.bank, acc.accNo));
         item.appendChild(input);
         list.appendChild(item);
       });
@@ -276,10 +286,6 @@
       remarks.forEach((itemData) => {
         const item = document.createElement('div');
         item.className = 'acc-item';
-
-        const title = document.createElement('span');
-        title.className = 'acc-title';
-        title.textContent = formatBankLabel(itemData.bank, itemData.accNo);
 
         const editRow = document.createElement('div');
         editRow.className = 'remark-edit-row';
@@ -303,7 +309,7 @@
         editRow.appendChild(saveBtn);
         editRow.appendChild(delBtn);
 
-        item.appendChild(title);
+        item.appendChild(createBankAccHeader(itemData.bank, itemData.accNo));
         item.appendChild(editRow);
         container.appendChild(item);
       });

@@ -56,12 +56,13 @@ export function parseDepositExcel(buffer) {
   let headerIndex = jsonData.findIndex((row, i) => i < 10 && row.some((cell) => {
     if (typeof cell !== 'string') return false;
     const c = cell.toLowerCase();
-    return cell.includes('วันที่') || c.includes('date') || c.includes('username') || cell.includes('ยอดฝาก') || cell.includes('ยอดถอน') || cell.includes('จำนวนเงิน');
+    return cell.includes('วันที่') || c.includes('date') || c.includes('username') || cell.includes('ยอดฝาก') || cell.includes('ยอดถอน') || cell.includes('จำนวนเงิน') || cell.trim() === 'จาก';
   }));
   if (headerIndex === -1) headerIndex = 0;
 
   const headers = jsonData[headerIndex].map((h) => String(h || '').trim());
   const isWithdrawFile = headers.some((h) => h.includes('ยอดถอน') || h.toLowerCase().includes('withdraw'));
+  const hasJakColumn = headers.some((h) => h === 'จาก');
 
   const rawRows = jsonData.slice(headerIndex + 1).map((row) => {
     const obj = {};
@@ -74,7 +75,7 @@ export function parseDepositExcel(buffer) {
         obj.dateTime = formatExcelDateTime(val);
       } else if (lowerH.includes('username') || lowerH === 'user' || h.includes('ยูสเซอร์')) {
         obj.username = String(val ?? '').trim();
-      } else if (h.includes('ธนาคาร') || lowerH.includes('bank')) {
+      } else if (hasJakColumn ? h === 'จาก' : (h.includes('ธนาคาร') || lowerH.includes('bank'))) {
         obj.bank = String(val ?? '').trim();
       } else if (h.includes('เลขบัญชี') || lowerH.includes('acc')) {
         obj.accNo = formatAccountNo(val);
